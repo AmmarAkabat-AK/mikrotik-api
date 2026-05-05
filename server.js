@@ -49,6 +49,88 @@ app.post("/connect", async (req, res) => {
     });
   }
 });
+// ================== SCAN DEVICES ==================
+app.post("/scan", async (req, res) => {
+  try {
+    const { host, user, pass, port } = req.body;
+
+    const conn = new RouterOSAPI({
+      host,
+      user,
+      password: pass,
+      port: port || 8728,
+      timeout: 7000
+    });
+
+    await conn.connect();
+
+    const arp = await conn.write("/ip/arp/print");
+    const dhcp = await conn.write("/ip/dhcp-server/lease/print");
+    const hotspot = await conn.write("/ip/hotspot/active/print");
+
+    await conn.close();
+
+    const devices = [];
+    const added = {};
+
+    // ===== ARP =====
+    arp.forEach(d => {
+      if (!d.address) return;
+      if (added[d.address]) return;
+
+      added[d.address] = true;
+
+      devices.push({
+        name: d["host-name"] || "Unknown",
+        ip: d.address,
+        mac: d["mac-address"] || "-",
+        source: "ARP"
+      });
+    });
+
+    // ===== DHCP =====
+    dhcp.forEach(d => {
+      if (!d.address) return;
+      if (added[d.address]) return;
+
+      added[d.address] = true;
+
+      devices.push({
+        name: d["host-name"] || d.comment || "DHCP Client",
+        ip: d.address,
+        mac: d["mac-address"] || "-",
+        source: "DHCP"
+      });
+    });
+
+    // ===== Hotspot =====
+    hotspot.forEach(d => {
+      if (!d.address) return;
+      if (added[d.address]) return;
+
+      added[d.address] = true;
+
+      devices.push({
+        name: d.user || "Hotspot User",
+        ip: d.address,
+        mac: d["mac-address"] || "-",
+        source: "Hotspot"
+      });
+    });
+
+    res.json({
+      success: true,
+      count: devices.length,
+      devices
+    });
+
+  } catch (e) {
+    res.json({
+      success: false,
+      message: e.message
+    });
+  }
+});
 
 app.listen(3000, () => {
   console.log("Server running on port 3000");
