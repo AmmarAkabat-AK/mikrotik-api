@@ -1,13 +1,58 @@
-const { createClient } = require("@supabase/supabase-js");
+const express = require("express");
+const cors = require("cors");
+const RouterOSAPI = require("node-routeros").RouterOSAPI;
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_KEY
-);
+const app = express();
+app.use(cors());
+app.use(express.json());
 
+// اختبار
+app.get("/", (req, res) => {
+  res.send("MikroTik API Running ✅");
+});
+
+// 🔥 الاتصال الحقيقي
+app.post("/connect", async (req, res) => {
+  const { host, user, pass, port } = req.body;
+
+  if (!host || !user || !pass) {
+    return res.json({
+      connected: false,
+      message: "بيانات ناقصة"
+    });
+  }
+
+  const conn = new RouterOSAPI({
+    host: host,
+    user: user,
+    password: pass,
+    port: port || 8728,
+    timeout: 5000
+  });
+
+  try {
+    await conn.connect();
+
+    const identity = await conn.write("/system/identity/print");
+
+    conn.close();
+
+    res.json({
+      connected: true,
+      identity: identity[0]?.name || "MikroTik"
+    });
+
+  } catch (err) {
+    res.json({
+      connected: false,
+      message: err.message
+    });
+  }
+});
+// ================== SCAN DEVICES ==================
 app.post("/scan", async (req, res) => {
   try {
-    const { host, user, pass, port, network } = req.body;
+    const { host, user, pass, port } = req.body;
 
     const conn = new RouterOSAPI({
       host,
@@ -28,44 +73,50 @@ app.post("/scan", async (req, res) => {
     const devices = [];
     const added = {};
 
-    // 🔥 فلترة الشبكة
-    let prefix = "172.16.";
-    if (network && network.includes("/")) {
-      const parts = network.split(".");
-      prefix = parts[0] + "." + parts[1] + ".";
-    }
-
-    function addDevice(d, name) {
+    // ===== ARP =====
+    arp.forEach(d => {
       if (!d.address) return;
-      if (!d.address.startsWith(prefix)) return;
       if (added[d.address]) return;
 
       added[d.address] = true;
 
       devices.push({
-        name: name,
+        name: d["host-name"] || "Unknown",
         ip: d.address,
         mac: d["mac-address"] || "-",
-        type: "network",
-        status: "online",
-        router: host
+        source: "ARP"
       });
-    }
+    });
 
-    arp.forEach(d => addDevice(d, d["host-name"] || "Unknown"));
-    dhcp.forEach(d => addDevice(d, d["host-name"] || d.comment || "DHCP"));
-    hotspot.forEach(d => addDevice(d, d.user || "Hotspot"));
+    // ===== DHCP =====
+    dhcp.forEach(d => {
+      if (!d.address) return;
+      if (added[d.address]) return;
 
-    // 🔥 حفظ في Supabase
-    if (devices.length > 0) {
-      const { error } = await supabase
-        .from("devices")
-        .upsert(devices, { onConflict: "ip" });
+      added[d.address] = true;
 
-      if (error) {
-        console.log("Supabase error:", error.message);
-      }
-    }
+      devices.push({
+        name: d["host-name"] || d.comment || "DHCP Client",
+        ip: d.address,
+        mac: d["mac-address"] || "-",
+        source: "DHCP"
+      });
+    });
+
+    // ===== Hotspot =====
+    hotspot.forEach(d => {
+      if (!d.address) return;
+      if (added[d.address]) return;
+
+      added[d.address] = true;
+
+      devices.push({
+        name: d.user || "Hotspot User",
+        ip: d.address,
+        mac: d["mac-address"] || "-",
+        source: "Hotspot"
+      });
+    });
 
     res.json({
       success: true,
@@ -79,4 +130,8 @@ app.post("/scan", async (req, res) => {
       message: e.message
     });
   }
+});
+
+app.listen(3000, () => {
+  console.log("Server running on port 3000");
 });
