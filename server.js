@@ -1,58 +1,45 @@
+require("dotenv").config();
+
 const express = require("express");
 const cors = require("cors");
-const RouterOSAPI = require("node-routeros").RouterOSAPI;
+const { RouterOSAPI } = require("node-routeros");
+const { createClient } = require("@supabase/supabase-js");
 
 const app = express();
+
 app.use(cors());
 app.use(express.json());
 
-// اختبار
-app.get("/", (req, res) => {
-  res.send("MikroTik API Running ✅");
-});
+const PORT = process.env.PORT || 3000;
 
-// 🔥 الاتصال الحقيقي
-app.post("/connect", async (req, res) => {
-  const { host, user, pass, port } = req.body;
+// ================== Supabase ==================
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_KEY
+);
 
-  if (!host || !user || !pass) {
-    return res.json({
-      connected: false,
-      message: "بيانات ناقصة"
-    });
-  }
-
+// ================== MikroTik ==================
+async function connectRouter() {
   const conn = new RouterOSAPI({
-    host: host,
-    user: user,
-    password: pass,
-    port: port || 8728,
-    timeout: 5000
+    host: process.env.MIKROTIK_HOST,
+    user: process.env.MIKROTIK_USER,
+    password: process.env.MIKROTIK_PASS,
+    port: process.env.MIKROTIK_PORT || 8728
   });
 
-  try {
-    await conn.connect();
+  await conn.connect();
+  return conn;
+}
 
-    const identity = await conn.write("/system/identity/print");
-
-    conn.close();
-
-    res.json({
-      connected: true,
-      identity: identity[0]?.name || "MikroTik"
-    });
-
-  } catch (err) {
-    res.json({
-      connected: false,
-      message: err.message
-    });
-  }
+// ================== الصفحة الرئيسية ==================
+app.get("/", (req, res) => {
+  res.send("MikroTik API is running 🚀");
 });
-// ================== SCAN DEVICES ==================
+
+// ================== 🔥 SCAN ROUTE (المهم) ==================
 app.post("/scan", async (req, res) => {
   try {
-    const { host, user, pass, port } = req.body;
+    const { host, user, pass, port, network } = req.body;
 
     const conn = new RouterOSAPI({
       host,
@@ -73,9 +60,16 @@ app.post("/scan", async (req, res) => {
     const devices = [];
     const added = {};
 
+    // 🔥 فلترة الشبكة (مثال: 172.16.0.0/16)
+    let prefix = "172.16.";
+    if (network && network.includes("/")) {
+      prefix = network.split(".").slice(0, 2).join(".") + ".";
+    }
+
     // ===== ARP =====
     arp.forEach(d => {
       if (!d.address) return;
+      if (!d.address.startsWith(prefix)) return;
       if (added[d.address]) return;
 
       added[d.address] = true;
@@ -91,12 +85,13 @@ app.post("/scan", async (req, res) => {
     // ===== DHCP =====
     dhcp.forEach(d => {
       if (!d.address) return;
+      if (!d.address.startsWith(prefix)) return;
       if (added[d.address]) return;
 
       added[d.address] = true;
 
       devices.push({
-        name: d["host-name"] || d.comment || "DHCP Client",
+        name: d["host-name"] || d.comment || "DHCP",
         ip: d.address,
         mac: d["mac-address"] || "-",
         source: "DHCP"
@@ -106,12 +101,13 @@ app.post("/scan", async (req, res) => {
     // ===== Hotspot =====
     hotspot.forEach(d => {
       if (!d.address) return;
+      if (!d.address.startsWith(prefix)) return;
       if (added[d.address]) return;
 
       added[d.address] = true;
 
       devices.push({
-        name: d.user || "Hotspot User",
+        name: d.user || "Hotspot",
         ip: d.address,
         mac: d["mac-address"] || "-",
         source: "Hotspot"
@@ -125,6 +121,7 @@ app.post("/scan", async (req, res) => {
     });
 
   } catch (e) {
+    console.error(e);
     res.json({
       success: false,
       message: e.message
@@ -132,6 +129,7 @@ app.post("/scan", async (req, res) => {
   }
 });
 
-app.listen(3000, () => {
-  console.log("Server running on port 3000");
+// ================== تشغيل السيرفر ==================
+app.listen(PORT, () => {
+  console.log("Server Started 🔥 on port " + PORT);
 });
