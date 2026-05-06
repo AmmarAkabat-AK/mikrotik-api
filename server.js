@@ -132,6 +132,55 @@ app.post("/scan", async (req, res) => {
   }
 });
 
+app.post("/usermanager/profiles", async (req,res)=>{
+
+  try{
+
+    const {
+      host,
+      user,
+      pass,
+      port
+    } = req.body;
+
+    const conn =
+      new RouterOSAPI({
+
+        host,
+        user,
+        password: pass,
+        port: port || 8728
+      });
+
+    await conn.connect();
+
+    const profiles =
+      await conn.write(
+        "/tool/user-manager/profile/print"
+      );
+
+    await conn.close();
+
+    res.json({
+
+      success:true,
+
+      profiles:
+        profiles.map(p => p.name)
+    });
+
+  }catch(e){
+
+    console.error(e);
+
+    res.json({
+
+      success:false,
+      profiles:[]
+    });
+  }
+});
+
 app.listen(3000, () => {
   console.log("Server running on port 3000");
 });
