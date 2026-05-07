@@ -240,11 +240,12 @@ app.post("/usermanager/profiles", async (req,res)=>{
         host,
         user,
         password: pass,
-        port: port || 8728,
-        timeout:7000
+        port: port || 8728
       });
 
     await conn.connect();
+
+    /* قراءة الباقات */
 
     const profiles =
       await conn.write(
@@ -253,27 +254,30 @@ app.post("/usermanager/profiles", async (req,res)=>{
 
     await conn.close();
 
+    console.log("USERMANAGER PROFILES:", profiles);
+
     res.json({
 
-      success:true,
+      success: true,
 
-      profiles:
-        profiles.map(
-          p => p.name
-        )
+      profiles: profiles.map(p =>
+
+        p.name ||
+        p["actual-profile"] ||
+        p.profile ||
+        "Profile"
+
+      )
     });
 
   }catch(e){
 
-    console.error(e);
+    console.error("PROFILE ERROR:", e);
 
     res.json({
 
       success:false,
-
-      profiles:[],
-
-      message:e.message
+      profiles:[]
     });
   }
 });
