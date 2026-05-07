@@ -128,10 +128,6 @@ app.post("/scan", async (req,res)=>{
 
     const added = {};
 
-    /* =============================
-       ARP
-    ============================= */
-
     arp.forEach(d => {
 
       if(!d.address) return;
@@ -154,10 +150,6 @@ app.post("/scan", async (req,res)=>{
         source:"ARP"
       });
     });
-
-    /* =============================
-       DHCP
-    ============================= */
 
     dhcp.forEach(d => {
 
@@ -183,10 +175,6 @@ app.post("/scan", async (req,res)=>{
         source:"DHCP"
       });
     });
-
-    /* =============================
-       HOTSPOT
-    ============================= */
 
     hotspot.forEach(d => {
 
@@ -232,7 +220,7 @@ app.post("/scan", async (req,res)=>{
 });
 
 /* =========================================
-   LOAD USERMANAGER PROFILES
+   USERMANAGER PROFILES
 ========================================= */
 
 app.post("/usermanager/profiles", async (req,res)=>{
@@ -291,10 +279,10 @@ app.post("/usermanager/profiles", async (req,res)=>{
 });
 
 /* =========================================
-   CREATE USERMANAGER USER
+   USERMANAGER USERS
 ========================================= */
 
-app.post("/usermanager/create", async (req,res)=>{
+app.post("/usermanager/users", async (req,res)=>{
 
   try{
 
@@ -302,28 +290,8 @@ app.post("/usermanager/create", async (req,res)=>{
       host,
       user,
       pass,
-      port,
-
-      username,
-      password,
-      profile
+      port
     } = req.body;
-
-    if(
-      !host ||
-      !user ||
-      !pass ||
-      !username ||
-      !profile
-    ){
-
-      return res.json({
-
-        success:false,
-
-        message:"بيانات ناقصة"
-      });
-    }
 
     const conn =
       new RouterOSAPI({
@@ -337,35 +305,10 @@ app.post("/usermanager/create", async (req,res)=>{
 
     await conn.connect();
 
-    /* =============================
-       CREATE USER
-    ============================= */
-
-    await conn.write(
-      "/tool/user-manager/user/add",
-      [
-
-        "=username=" + username,
-
-        "=password=" + (password || "")
-      ]
-    );
-
-    /* =============================
-       CREATE PROFILE LIMITATION
-    ============================= */
-
-    await conn.write(
-      "/tool/user-manager/user/create-and-activate-profile",
-      [
-
-        "=customer=admin",
-
-        "=profile=" + profile,
-
-        "=numbers=" + username
-      ]
-    );
+    const users =
+      await conn.write(
+        "/tool/user-manager/user/print"
+      );
 
     await conn.close();
 
@@ -373,9 +316,23 @@ app.post("/usermanager/create", async (req,res)=>{
 
       success:true,
 
-      username,
-      password,
-      profile
+      users: users.map(u => ({
+
+        username:
+          u.username || "",
+
+        password:
+          u.password || "",
+
+        profile:
+          u.actual_profile || "",
+
+        uptime:
+          u.uptime || "0",
+
+        disabled:
+          u.disabled || "false"
+      }))
     });
 
   }catch(e){
@@ -385,6 +342,8 @@ app.post("/usermanager/create", async (req,res)=>{
     res.json({
 
       success:false,
+
+      users:[],
 
       message:e.message
     });
